@@ -6,10 +6,10 @@
 \title{Create a Stored Procedure}
 \usage{
 createSprocFromFunction(connectionString, name, func, inputParams = NULL,
-  outputParams = NULL)
+  outputParams = NULL, getScript = FALSE)
 
 createSprocFromScript(connectionString, name, script, inputParams = NULL,
-  outputParams = NULL)
+  outputParams = NULL, getScript = FALSE)
 }
 \arguments{
 \item{connectionString}{character string. The connectionString to the database}
@@ -23,6 +23,8 @@ where the names are the arguments and the values are the types}
 
 \item{outputParams}{named list. The types of the outputs,
 where the names are the arguments and the values are the types}
+
+\item{getScript}{boolean. Return the tsql script that would be run on the server instead of running it}
 
 \item{script}{character string. The path to the script to wrap in the stored procedure}
 }

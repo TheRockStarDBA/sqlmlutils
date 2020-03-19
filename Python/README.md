@@ -4,19 +4,17 @@ sqlmlutils is a python package to help execute Python code on a SQL Server machi
 
 # Installation
 
-Run
+Download the zip package file from the dist folder.
+From a command prompt, run
 ```
-python.exe -m pip install dist/sqlmlutils-0.5.0.zip --upgrade
-```
-OR
-To build a new package file and install, run
-```
-.\buildandinstall.cmd
+pip install sqlmlutils
 ```
 
 Note: If you encounter errors installing the pymssql dependency and your client is a Windows machine, consider 
 installing the .whl file at the below link (download the file for your Python version and run pip install): 
 https://www.lfd.uci.edu/~gohlke/pythonlibs/#pymssql
+
+If you are developing on your own branch and want to rebuild and install the package, you can use the buildandinstall.cmd script that is included.
 
 # Getting started
 
@@ -35,6 +33,7 @@ execute_sproc                   # Execute a stored procedure in the SQL database
 install_package                 # Install a Python package on the SQL database
 remove_package                  # Remove a Python package from the SQL database
 list                            # Enumerate packages that are installed on the SQL database
+get_packages_by_user            # Enumerate external libraries installed by specific user in specific scope
 ```
 
 # Examples
@@ -48,7 +47,12 @@ import sqlmlutils
 def foo():
     return "bar"
 
-sqlpy = sqlmlutils.SQLPythonExecutor(sqlmlutils.ConnectionInfo(server="localhost", database="master"))
+# For Linux SQL Server, you must specify the ODBC Driver and the username/password because there is no Trusted_Connection/Implied Authentication support yet.
+# connection = sqlmlutils.ConnectionInfo(driver="ODBC Driver 13 for SQL Server", server="localhost", database="master", uid="username", pwd="password")
+
+connection = sqlmlutils.ConnectionInfo(server="localhost", database="master")
+
+sqlpy = sqlmlutils.SQLPythonExecutor(connection)
 result = sqlpy.execute_function_in_sql(foo)
 assert result == "bar"
 ```
@@ -79,8 +83,12 @@ def scatter_plot(input_df, x_col, y_col):
     # Returns the bytes of the png to the client
     return buf
 
+# For Linux SQL Server, you must specify the ODBC Driver and the username/password because there is no Trusted_Connection/Implied Authentication support yet.
+# connection = sqlmlutils.ConnectionInfo(driver="ODBC Driver 13 for SQL Server", server="localhost", database="AirlineTestDB", uid="username", pwd="password")
 
-sqlpy = sqlmlutils.SQLPythonExecutor(sqlmlutils.ConnectionInfo(server="localhost", database="AirlineTestDB"))
+connection = sqlmlutils.ConnectionInfo(server="localhost", database="AirlineTestDB")
+
+sqlpy = sqlmlutils.SQLPythonExecutor(connection)
 
 sql_query = "select top 100 * from airline5000"
 plot_data = sqlpy.execute_function_in_sql(func=scatter_plot, input_data_query=sql_query,
@@ -96,7 +104,6 @@ You can use the AirlineTestDB (supplied as a .bak file above) to run these examp
 ```python
 import sqlmlutils
 
-
 def linear_regression(input_df, x_col, y_col):
     from sklearn import linear_model
 
@@ -108,8 +115,12 @@ def linear_regression(input_df, x_col, y_col):
 
     return lr
 
+# For Linux SQL Server, you must specify the ODBC Driver and the username/password because there is no Trusted_Connection/Implied Authentication support yet.
+# connection = sqlmlutils.ConnectionInfo(driver="ODBC Driver 13 for SQL Server", server="localhost", database="AirlineTestDB", uid="username", pwd="password")
 
-sqlpy = sqlmlutils.SQLPythonExecutor(sqlmlutils.ConnectionInfo(server="localhost", database="AirlineTestDB"))
+connection = sqlmlutils.ConnectionInfo(server="localhost", database="AirlineTestDB")
+
+sqlpy = sqlmlutils.SQLPythonExecutor(connection)
 sql_query = "select top 1000 CRSDepTime, CRSArrTime from airline5000"
 regression_model = sqlpy.execute_function_in_sql(linear_regression, input_data_query=sql_query,
                                                  x_col="CRSDepTime", y_col="CRSArrTime")
@@ -123,7 +134,12 @@ print(regression_model.coef_)
 import sqlmlutils
 import pytest
 
-sqlpy = sqlmlutils.SQLPythonExecutor(sqlmlutils.ConnectionInfo(server="localhost", database="AirlineTestDB"))
+# For Linux SQL Server, you must specify the ODBC Driver and the username/password because there is no Trusted_Connection/Implied Authentication support yet.
+# connection = sqlmlutils.ConnectionInfo(driver="ODBC Driver 13 for SQL Server", server="localhost", database="AirlineTestDB", uid="username", pwd="password")
+
+connection = sqlmlutils.ConnectionInfo(server="localhost", database="AirlineTestDB")
+
+sqlpy = sqlmlutils.SQLPythonExecutor(connection)
 sql_query = "select top 10 * from airline5000"
 data_table = sqlpy.execute_sql_query(sql_query)
 assert len(data_table.columns) == 30
@@ -157,6 +173,9 @@ def principal_components(input_table: str, output_table: str):
     output_df.to_sql(output_table, engine, if_exists="replace")
 
 
+# For Linux SQL Server, you must specify the ODBC Driver and the username/password because there is no Trusted_Connection/Implied Authentication support yet.
+# connection = sqlmlutils.ConnectionInfo(driver="ODBC Driver 13 for SQL Server", server="localhost", database="AirlineTestDB", uid="username", pwd="password")
+
 connection = sqlmlutils.ConnectionInfo(server="localhost", database="AirlineTestDB")
 
 input_table = "airline5000"
@@ -181,26 +200,30 @@ assert not sqlpy.check_sproc(sp_name)
 ```
 
 ### Package Management
+
+##### Package management with sqlmlutils is supported in SQL Server 2019 CTP 2.4 and later.
+
 ##### Install and remove packages from SQL Server
 
 ```python
 import sqlmlutils
 
+# For Linux SQL Server, you must specify the ODBC Driver and the username/password because there is no Trusted_Connection/Implied Authentication support yet.
+# connection = sqlmlutils.ConnectionInfo(driver="ODBC Driver 13 for SQL Server", server="localhost", database="AirlineTestDB", uid="username", pwd="password")
+
 connection = sqlmlutils.ConnectionInfo(server="localhost", database="AirlineTestDB")
-sqlpy = sqlmlutils.SQLPythonExecutor(connection)
 pkgmanager = sqlmlutils.SQLPackageManager(connection)
+pkgmanager.install("astor")
 
-def use_tensorflow():
-    import tensorflow as tf
-    node1 = tf.constant(3.0, tf.float32)
-    return str(node1.dtype)
+def import_astor():
+    import astor
 
-pkgmanager.install("tensorflow")
-val = sqlpy.execute_function_in_sql(use_tensorflow)
+# import the astor package to make sure it installed properly
+sqlpy = sqlmlutils.SQLPythonExecutor(connection)
+val = sqlpy.execute_function_in_sql(import_astor)
 
-pkgmanager.uninstall("tensorflow")
+pkgmanager.uninstall("astor")
 ```
-
 
 # Notes for Developers
 
@@ -209,7 +232,7 @@ pkgmanager.uninstall("tensorflow")
 1. Make sure a SQL Server with an updated ML Services Python is running on localhost. 
 2. Restore the AirlineTestDB from the .bak file in this repo 
 3. Make sure Trusted (Windows) authentication works for connecting to the database
-4. Setup a user with db_owner role with uid: "Tester" and password "FakeTesterPwd"
+4. Setup a user with db_owner role with uid: "Tester" and password "FakeT3sterPwd!"
     
 ### Notable TODOs and open issues
 

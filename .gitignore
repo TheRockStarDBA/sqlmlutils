@@ -34,3 +34,13 @@ vignettes/*.pdf
 
 # Shiny token, see https://shiny.rstudio.com/articles/shinyapps.html
 rsconnect/
+.Rproj.user
+
+#Python Cache files
+__pycache__/
+.cache/
+.idea/
+
+*/build/lib/
+Python/*.egg-info
+Python/dist/*.whl

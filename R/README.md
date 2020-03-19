@@ -1,12 +1,13 @@
 # sqlmlutils
 
-sqlmlutils is an R package to help execute R code on a SQL Server machine.
+sqlmlutils is an R package to help execute R code on a SQL database (SQL Server or Azure SQL Database).
 
 # Installation
 
-Run 
+From command prompt, run 
 ```
-R CMD INSTALL dist/sqlmlutils_0.5.0.zip
+R.exe -e "install.packages('RODBCext', repos='https://cran.microsoft.com')"
+R.exe CMD INSTALL dist/sqlmlutils_0.7.1.zip
 ```
 OR
 To build a new package file and install, run
@@ -18,7 +19,7 @@ To build a new package file and install, run
 
 Shown below are the important functions sqlmlutils provides:
 ```R
-connectionInfo                      # Create a connection string for connecting to the SQL Server
+connectionInfo                      # Create a connection string for connecting to the SQL database
 
 executeFunctionInSQL                # Execute an R function inside the SQL database
 executeScriptInSQL                  # Execute an R script inside the SQL database
@@ -42,6 +43,10 @@ sql_installed.packages              # Enumerate packages that are installed on t
 
 ```R
 library(sqlmlutils)
+
+# For Linux SQL Server, you must specify the ODBC Driver and the username/password because there is no Trusted_Connection/Implied Authentication support yet.
+# connection <- connectionInfo(driver= "ODBC Driver 13 for SQL Server", database="AirlineTestDB", uid = "username", pwd = "password")
+
 connection <- connectionInfo()
 
 funcWithArgs <- function(arg1, arg2){
@@ -54,6 +59,10 @@ result <- executeFunctionInSQL(connection, funcWithArgs, arg1="result1", arg2="r
 
 ```R
 library(sqlmlutils)
+
+# For Linux SQL Server, you must specify the ODBC Driver and the username/password because there is no Trusted_Connection/Implied Authentication support yet.
+# connection <- connectionInfo(driver= "ODBC Driver 13 for SQL Server", database="AirlineTestDB", uid = "username", pwd = "password")
+
 connection <-  connectionInfo(database="AirlineTestDB")
 
 linearModel <- function(in_df, xCol, yCol) {
@@ -69,6 +78,10 @@ model
 
 ```R
 library(sqlmlutils)
+
+# For Linux SQL Server, you must specify the ODBC Driver and the username/password because there is no Trusted_Connection/Implied Authentication support yet.
+# connection <- connectionInfo(driver= "ODBC Driver 13 for SQL Server", database="AirlineTestDB", uid = "username", pwd = "password")
+
 connection <-  connectionInfo(database="AirlineTestDB")
 
 dataTable <- executeSQLQuery(connectionString = connection, sqlQuery="SELECT TOP 100 * FROM airline5000")
@@ -88,6 +101,9 @@ spPredict <- function(inputDataFrame) {
     rxPredict(model, inputDataFrame)
 }
 
+# For Linux SQL Server, you must specify the ODBC Driver and the username/password because there is no Trusted_Connection/Implied Authentication support yet.
+# connection <- connectionInfo(driver= "ODBC Driver 13 for SQL Server", database="AirlineTestDB", uid = "username", pwd = "password")
+
 connection <- connectionInfo(database="AirlineTestDB")
 inputParams <- list(inputDataFrame = "Dataframe")
 
@@ -103,21 +119,28 @@ dropSproc(connectionString = connection, name = name)
 ```
 
 ### Package Management 
-##### Install and remove packages from SQL Server
+
+##### Package management with sqlmlutils is supported in SQL Server 2019 CTP 2.4 and later.
+
+##### Install and remove packages from the SQL database
 
 ```R
 library(sqlmlutils)
+
+# For Linux SQL Server, you must specify the ODBC Driver and the username/password because there is no Trusted_Connection/Implied Authentication support yet.
+# connection <- connectionInfo(driver= "ODBC Driver 13 for SQL Server", database="AirlineTestDB", uid = "username", pwd = "password")
+
 connection <- connectionInfo(database="AirlineTestDB")
 
-# install glue on sql server
+# install glue on sql database
 pkgs <- c("glue")
 sql_install.packages(connectionString = connection, pkgs, verbose = TRUE, scope="PUBLIC")
 
-# confirm glue is installed on sql server
-r<-sql_installed.packages(connectionString = connection, fields=c("Package", "LibPath", "Attributes", "Scope"))
+# confirm glue is installed on sql database
+r <- sql_installed.packages(connectionString = connection, fields=c("Package", "LibPath", "Attributes", "Scope"))
 View(r)
 
-# use glue on sql server
+# use glue on sql database
 useLibraryGlueInSql <- function()
 {
     library(glue)
@@ -133,19 +156,35 @@ useLibraryGlueInSql <- function()
 result <- executeFunctionInSQL(connectionString = connection, func = useLibraryGlueInSql)
 print(result)
 
-# remove glue from sql server
+# remove glue from sql database
 sql_remove.packages(connectionString = connection, pkgs, scope="PUBLIC")
+```
+
+##### Install using a local file (instead of from CRAN)
+To install from a local file, add "repos=NULL" to sql_install.packages. 
+Testing and uninstall can be done the same way as above.
+
+```R
+library(sqlmlutils)
+
+# For Linux SQL Server, you must specify the ODBC Driver and the username/password because there is no Trusted_Connection/Implied Authentication support yet.
+# connection <- connectionInfo(driver= "ODBC Driver 13 for SQL Server", database="AirlineTestDB", uid = "username", pwd = "password")
+
+connection <- connectionInfo(database="AirlineTestDB")
+
+# install glue on sql database
+pkgPath <- "C:\\glue_1.3.0.zip"
+sql_install.packages(connectionString = connection, pkgPath, verbose = TRUE, scope="PUBLIC", repos=NULL)
 ```
 
 # Notes for Developers
 
-### Running the tests
+### Running the tests on a local machine
 
-1. Make sure a SQL Server with an updated ML Services R is running on localhost. 
+1. Make sure a SQL database with an updated ML Services R is running on localhost. 
 2. Restore the AirlineTestDB from the .bak file in this repo 
 3. Make sure Trusted (Windows) authentication works for connecting to the database
     
 ### Notable TODOs and open issues
 
 1. Output Parameter execution does not work - RODBCext limitations?
-2. Testing from a Linux client has not been performed.

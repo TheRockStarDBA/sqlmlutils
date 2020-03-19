@@ -1,7 +1,8 @@
+import os
 import re
 import requirements
 import subprocess
-import os
+import sys
 
 from sqlmlutils import ConnectionInfo, SQLPythonExecutor
 from sqlmlutils.packagemanagement import servermethods
@@ -30,19 +31,23 @@ class PipDownloader:
             commands.append("--no-dependencies")
 
         output, error = self._run_in_new_process(commands)
-
+        
         pkgreqs = self._get_reqs_from_output(output)
 
         packagesdownloaded = [os.path.join(self._downloaddir, f) for f in os.listdir(self._downloaddir)
                               if os.path.isfile(os.path.join(self._downloaddir, f))]
 
+        if len(packagesdownloaded) <= 0:
+            raise RuntimeError("Failed to download any packages, pip returned error: " + error)
+            
         return pkgreqs, packagesdownloaded
 
     def _run_in_new_process(self, commands):
         # We get the package requirements based on the print output of pip, which is stable across version 8-10.
         # TODO: get requirements in a more robust way (either through using pip internal code or rolling our own)
         download_script = os.path.join((os.path.dirname(os.path.realpath(__file__))), "download_script.py")
-        args = ["python", download_script,
+        exe_path = sys.executable if sys.executable is not None else "python"
+        args = [exe_path, download_script,
                 str(_patch_get_impl_version_info()), str(_patch_get_abbr_impl()),
                 str(_patch_get_abi_tag()), str(_patch_get_platform()),
                 ",".join(str(x) for x in commands)]

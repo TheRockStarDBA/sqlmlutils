@@ -30,7 +30,8 @@ class SQLPackageManager:
                 upgrade: bool = False,
                 version: str = None,
                 install_dependencies: bool = True,
-                scope: Scope = Scope.private_scope()):
+                scope: Scope = None,
+                out_file: str = None):
         """Install Python package into a SQL Server Python Services environment using pip.
 
         :param package: Package name to install on the SQL Server. Can also be a filename.
@@ -44,6 +45,7 @@ class SQLPackageManager:
         This installs packages into a private path for the SQL principal you connect as. If your principal has the
         db_owner role, you can also specify scope as public. This will install packages into a public path for all
         users. Note: if you connect as dbo, you can only install packages into the public path.
+        :param out_file: INSTEAD of running the actual installation, print the t-sql commands to a text file to use as script.
 
         >>> from sqlmlutils import ConnectionInfo, SQLPythonExecutor, SQLPackageManager
         >>> connection = ConnectionInfo(server="localhost", database="AirlineTestsDB")
@@ -63,13 +65,18 @@ class SQLPackageManager:
         if not install_dependencies:
             raise ValueError("Dependencies will always be installed - "
                              "single package install without dependencies not yet supported.")
-
+        if scope is None:
+            scope = self._get_default_scope()
+        
         if os.path.isfile(package):
-            self._install_from_file(package, scope, upgrade)
+            self._install_from_file(package, scope, upgrade, out_file=out_file)
         else:
-            self._install_from_pypi(package, upgrade, version, install_dependencies, scope)
+            self._install_from_pypi(package, upgrade, version, install_dependencies, scope, out_file=out_file)
 
-    def uninstall(self, package_name: str, scope: Scope = Scope.private_scope()):
+    def uninstall(self, 
+                package_name: str, 
+                scope: Scope = None,
+                out_file: str = None):
         """Remove Python package from a SQL Server Python environment.
 
         :param package_name: Package name to remove on the SQL Server.
@@ -77,9 +84,14 @@ class SQLPackageManager:
         This uninstalls packages from a private path for the SQL principal you connect as. If your principal has the
         db_owner role, you can also specify scope as public. This will uninstall packages from a public path for all
         users. Note: if you connect as dbo, you can only uninstall packages from the public path.
+        :param out_file: INSTEAD of running the actual installation, print the t-sql commands to a text file to use as script.
         """
-        print("Uninstalling " + package_name + "only, not dependencies")
-        self._drop_sql_package(package_name, scope)
+            
+        if scope is None:
+            scope = self._get_default_scope()
+            
+        print("Uninstalling " + package_name + " only, not dependencies")
+        self._drop_sql_package(package_name, scope, out_file)
 
     def list(self):
         """List packages installed on server, similar to output of pip freeze.
@@ -88,9 +100,34 @@ class SQLPackageManager:
         """
         return self._pyexecutor.execute_function_in_sql(servermethods.show_installed_packages)
 
-    def _drop_sql_package(self, sql_package_name: str, scope: Scope):
+    def _get_default_scope(self):
+        query = "SELECT IS_SRVROLEMEMBER ('sysadmin') as is_sysadmin"
+        is_sysadmin = self._pyexecutor.execute_sql_query(query)["is_sysadmin"].iloc[0]
+        return Scope.public_scope() if is_sysadmin == 1 else Scope.private_scope()
+        
+    def _get_packages_by_user(self, owner='', scope: Scope=Scope.private_scope()):
+        has_user = (owner != '')
+
+        query = "DECLARE @principalId INT;  \
+                DECLARE @currentUser NVARCHAR(128);  \
+                SELECT @currentUser = "
+
+        if has_user:
+            query += "%s;\n"
+        else:
+            query += "CURRENT_USER;\n"
+
+        query += "SELECT @principalId = USER_ID(@currentUser);  \
+                       SELECT name, language, scope   \
+                       FROM sys.external_libraries AS elib   \
+                       WHERE elib.principal_id=@principalId   \
+                       AND elib.language='Python' AND elib.scope={0}   \
+                       ORDER BY elib.name ASC;".format(1 if scope == Scope.private_scope() else 0)
+        return self._pyexecutor.execute_sql_query(query, owner)
+
+    def _drop_sql_package(self, sql_package_name: str, scope: Scope, out_file: str):
         builder = DropLibraryBuilder(sql_package_name=sql_package_name, scope=scope)
-        execute_query(builder, self._connection_info)
+        execute_query(builder, self._connection_info, out_file)
 
     # TODO: Support not dependencies
     def _install_from_pypi(self,
@@ -98,7 +135,8 @@ class SQLPackageManager:
                            upgrade: bool = False,
                            version: str = None,
                            install_dependencies: bool = True,
-                           scope: Scope = Scope.private_scope()):
+                           scope: Scope = Scope.private_scope(),
+                           out_file: str = None):
 
         if not install_dependencies:
             raise ValueError("Dependencies will always be installed - "
@@ -110,9 +148,9 @@ class SQLPackageManager:
         with tempfile.TemporaryDirectory() as temporary_directory:
             pipdownloader = PipDownloader(self._connection_info, temporary_directory, target_package)
             target_package_file = pipdownloader.download_single()
-            self._install_from_file(target_package_file, scope, upgrade)
+            self._install_from_file(target_package_file, scope, upgrade, out_file=out_file)
 
-    def _install_from_file(self, target_package_file: str, scope: Scope, upgrade: bool = False):
+    def _install_from_file(self, target_package_file: str, scope: Scope, upgrade: bool = False, out_file: str = None):
         name = get_package_name_from_file(target_package_file)
         version = get_package_version_from_file(target_package_file)
 
@@ -132,10 +170,10 @@ class SQLPackageManager:
             # Resolve which package dependencies need to be installed or upgraded on server.
             required_installs = resolver.get_required_installs(target_package_requirements)
             dependencies_to_install = self._get_required_files_to_install(requirements_downloaded, required_installs)
+            
+            self._install_many(target_package_file, dependencies_to_install, scope, out_file=out_file)
 
-            self._install_many(target_package_file, dependencies_to_install, scope)
-
-    def _install_many(self, target_package_file: str, dependency_files, scope: Scope):
+    def _install_many(self, target_package_file: str, dependency_files, scope: Scope, out_file:str=None):
         target_name = get_package_name_from_file(target_package_file)
 
         with SQLQueryExecutor(connection=self._connection_info) as sqlexecutor:
@@ -143,15 +181,15 @@ class SQLPackageManager:
             transaction.begin()
             try:
                 for pkgfile in dependency_files:
-                    self._install_single(sqlexecutor, pkgfile, scope)
-                self._install_single(sqlexecutor, target_package_file, scope, True)
+                    self._install_single(sqlexecutor, pkgfile, scope, out_file=out_file)
+                self._install_single(sqlexecutor, target_package_file, scope, True, out_file=out_file)
                 transaction.commit()
-            except Exception:
+            except Exception as e:
                 transaction.rollback()
-                raise RuntimeError("Package installation failed, installed dependencies were rolled back.")
+                raise RuntimeError("Package installation failed, installed dependencies were rolled back.") from e
 
     @staticmethod
-    def _install_single(sqlexecutor: SQLQueryExecutor, package_file: str, scope: Scope, is_target=False):
+    def _install_single(sqlexecutor: SQLQueryExecutor, package_file: str, scope: Scope, is_target=False, out_file: str=None):
         name = get_package_name_from_file(package_file)
         version = get_package_version_from_file(package_file)
 
@@ -161,7 +199,7 @@ class SQLPackageManager:
                 zipf.write(package_file, os.path.basename(package_file))
 
             builder = CreateLibraryBuilder(pkg_name=name, pkg_filename=prezip, scope=scope)
-            sqlexecutor.execute(builder)
+            sqlexecutor.execute(builder, out_file=out_file, getResults=False)
 
     @staticmethod
     def _get_required_files_to_install(pkgfiles, requirements):
